@@ -49,6 +49,9 @@ class GPTModel(nn.Module):
         :param learning_rate: float, learning rate for the optimizer.
         :param save_path: str, path to save the trained model.
         """
+        # Check if CUDA is available and set
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print("Using device:", device)
         self.train()
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(self.parameters(), lr=learning_rate)

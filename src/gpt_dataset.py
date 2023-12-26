@@ -1,11 +1,11 @@
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 
 class GPTDataset(Dataset):
     """
     A PyTorch Dataset for GPT-style training.
 
-    This class takes a text input and tokenizes it into input-target pairs using a sliding window approach.
+    This class tokenizes text input into input-target pairs using a sliding window approach.
     """
 
     def __init__(self, text, tokenizer, max_length, stride):
@@ -20,18 +20,17 @@ class GPTDataset(Dataset):
         self.tokenizer = tokenizer
         self.input_ids = []
         self.target_ids = []
+        self._tokenize_and_create_sequences(text, max_length, stride)
 
-        token_ids = tokenizer.encode(text)
-        self._create_sequences(token_ids, max_length, stride)
-
-    def _create_sequences(self, token_ids, max_length, stride):
+    def _tokenize_and_create_sequences(self, text, max_length, stride):
         """
-        Create input-target sequences from the tokenized text.
+        Tokenize the text and create input-target sequences.
 
-        :param token_ids: list of int, tokenized representation of the text.
+        :param text: str, the text to tokenize.
         :param max_length: int, the maximum length of the input-target pairs.
         :param stride: int, the number of tokens to slide over the text for the next sequence.
         """
+        token_ids = self.tokenizer.encode(text)
         for i in range(0, len(token_ids) - max_length, stride):
             input_chunk = token_ids[i:i + max_length]
             target_chunk = token_ids[i + 1:i + max_length + 1]
@@ -52,3 +51,18 @@ class GPTDataset(Dataset):
         :return: tuple of torch.Tensor, (input_ids, target_ids).
         """
         return self.input_ids[idx], self.target_ids[idx]
+
+
+def create_dataloader(text, tokenizer, batch_size=4, max_length=256, stride=128):
+    """
+    Create a DataLoader for the GPT Dataset.
+
+    :param text: str, the raw text to be tokenized and loaded.
+    :param tokenizer: a tokenizer instance compatible with the GPT model.
+    :param batch_size: int, size of each batch of data.
+    :param max_length: int, maximum sequence length for each data sample.
+    :param stride: int, stride for creating overlapping sequences.
+    :return: DataLoader, the DataLoader instance for the dataset.
+    """
+    dataset = GPTDataset(text, tokenizer, max_length, stride)
+    return DataLoader(dataset, batch_size=batch_size)
