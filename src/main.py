@@ -19,6 +19,7 @@ def parse_arguments():
     parser.add_argument('--learning_rate', type=float, default=0.01, help='Learning rate')
     parser.add_argument('--num_heads', type=int, default=4, help='Number of heads for multi-head attention')
     parser.add_argument('--num_layers', type=int, default=8, help='Number of layers for transformer')
+    parser.add_argument('--train_data_path', type=str, default='data/genesis.txt', help='Path to training data')
     parser.add_argument('--save_path', type=str, default='models/gpt_model.pth', help='Path to save the model')
     parser.add_argument('--load_path', type=str, default='models/gpt_model.pth', help='Path to load the model for inference')
     parser.add_argument('--text_to_infer', type=str, default='', help='Text to generate inference from')
@@ -30,7 +31,7 @@ def main():
 
     if args.mode == 'train':
         # Training mode
-        with open("data/genesis.txt", "r", encoding="utf-8") as f:
+        with open(args.train_data_path, "r", encoding="utf-8") as f:
             raw_text = f.read()
         dataset = GPTDataset(raw_text, tokenizer=tiktoken.get_encoding("gpt2"), max_length=args.max_length, stride=args.stride)
         dataloader = create_dataloader(raw_text, max_length=args.max_length, stride=args.stride, batch_size=args.batch_size, tokenizer=tiktoken.get_encoding("gpt2"))
