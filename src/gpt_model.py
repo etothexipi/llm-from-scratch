@@ -42,14 +42,14 @@ class GPTModel(nn.Module):
         logits = self.linear(transformer_out)
         return logits
 
-    def train_model(self, train_dataloader, num_epochs, learning_rate, save_path):
+    def train_model(self, train_dataloader, num_epochs, learning_rate, save_path_prefix):
         """
         Train the GPT Model.
 
         :param train_dataloader: DataLoader, the DataLoader for training data.
         :param num_epochs: int, number of training epochs.
         :param learning_rate: float, learning rate for the optimizer.
-        :param save_path: str, path to save the trained model.
+        :param save_path_prefix: str, path to save the trained model.
         """
         # Check if CUDA is available and set
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -72,12 +72,13 @@ class GPTModel(nn.Module):
                         loss.backward()
                         optimizer.step()
                         total_loss += loss.item()
-                        if cnt % 100 == 0:
+                        if cnt % 10 == 0:
                             print(f"Batches remaining: {len(train_dataloader) - cnt}")
                         cnt += 1
 
             print(f"Epoch {epoch+1}/{num_epochs}, Loss: {total_loss:.4f}")
             print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 
+            save_path = f"{save_path_prefix}_{epoch+1}.pth"
             torch.save(self.state_dict(), save_path)
             print(f"Model checkpoint saved to {save_path}")

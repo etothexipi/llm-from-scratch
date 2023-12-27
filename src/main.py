@@ -21,7 +21,7 @@ def parse_arguments():
     parser.add_argument('--num_heads', type=int, default=4, help='Number of heads for multi-head attention')
     parser.add_argument('--num_layers', type=int, default=8, help='Number of layers for transformer')
     parser.add_argument('--train_data_path', type=str, default='data/genesis.txt', help='Path to training data')
-    parser.add_argument('--save_path', type=str, default='models/gpt_model.pth', help='Path to save the model')
+    parser.add_argument('--save_path_prefix', type=str, default='models/gpt_model.pth', help='Prefix path to save the model. Each epoch will be saved as <save_path_prefix>_<epoch>.pth')
     parser.add_argument('--load_path', type=str, default='models/gpt_model.pth', help='Path to load the model for inference')
     parser.add_argument('--text_to_infer', type=str, default='', help='Text to generate inference from')
     return parser.parse_args()
@@ -37,7 +37,7 @@ def main():
         # dataset = GPTDataset(raw_text, tokenizer=tiktoken.get_encoding("gpt2"), max_length=args.max_length, stride=args.stride)
         dataloader = create_dataloader(raw_text, max_length=args.max_length, stride=args.stride, batch_size=args.batch_size, tokenizer=tiktoken.get_encoding("gpt2"), num_workers=args.num_workers)
         model = GPTModel(vocab_size=50257, output_dim=256, block_size=args.max_length, num_heads=args.num_heads, num_layers=args.num_layers)
-        model.train_model(dataloader, num_epochs=args.num_epochs, learning_rate=args.learning_rate, save_path=args.save_path)
+        model.train_model(dataloader, num_epochs=args.num_epochs, learning_rate=args.learning_rate, save_path_prefix=args.save_path_prefix)
 
     elif args.mode == 'infer':
         # Inference mode
