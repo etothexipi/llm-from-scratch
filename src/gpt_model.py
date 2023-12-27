@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.profiler import profile, record_function, ProfilerActivity
+
 
 class GPTModel(nn.Module):
     """
@@ -33,7 +35,7 @@ class GPTModel(nn.Module):
         :return: torch.Tensor, logits output by the model.
         """
         token_embeddings = self.token_embedding_layer(inputs)
-        batch_size, seq_length, _ = token_embeddings.shape
+        _, seq_length, _ = token_embeddings.shape
         pos_embeddings = self.pos_embedding_layer(torch.arange(seq_length, device=inputs.device))
         input_embeddings = token_embeddings + pos_embeddings
         transformer_out = self.transformer(input_embeddings, input_embeddings)
@@ -52,24 +54,30 @@ class GPTModel(nn.Module):
         # Check if CUDA is available and set
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print("Using device:", device)
+        self.to(device)  # Move model to the device specified above
         self.train()
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(self.parameters(), lr=learning_rate)
-        device = next(self.parameters()).device  # Get model device
 
         for epoch in range(num_epochs):
             total_loss = 0
-            for inputs, targets in train_dataloader:
-                inputs, targets = inputs.to(device), targets.to(device)
-                optimizer.zero_grad()
-                logits = self(inputs)
-                loss = criterion(logits.view(-1, logits.size(-1)), targets.view(-1))
-                loss.backward()
-                optimizer.step()
-                total_loss += loss.item()
+            with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=False, profile_memory=False) as prof:
+                cnt = 0
+                for inputs, targets in train_dataloader:
+                    with record_function("model_training"):
+                        inputs, targets = inputs.to(device), targets.to(device)
+                        optimizer.zero_grad()
+                        logits = self(inputs)
+                        loss = criterion(logits.view(-1, logits.size(-1)), targets.view(-1))
+                        loss.backward()
+                        optimizer.step()
+                        total_loss += loss.item()
+                        if cnt % 100 == 0:
+                            print(f"Batches remaining: {len(train_dataloader) - cnt}")
+                        cnt += 1
 
             print(f"Epoch {epoch+1}/{num_epochs}, Loss: {total_loss:.4f}")
+            print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 
-            if (epoch + 1) % 4 == 0 or epoch == num_epochs - 1:
-                torch.save(self.state_dict(), save_path)
-                print(f"Model checkpoint saved to {save_path}")
+            torch.save(self.state_dict(), save_path)
+            print(f"Model checkpoint saved to {save_path}")

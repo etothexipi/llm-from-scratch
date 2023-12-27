@@ -15,6 +15,7 @@ def parse_arguments():
     parser.add_argument('--batch_size', type=int, default=4, help='Batch size for training')
     parser.add_argument('--max_length', type=int, default=256, help='Maximum sequence length')
     parser.add_argument('--stride', type=int, default=128, help='Stride for data loading')
+    parser.add_argument('--num_workers', type=int, default=1, help='Number of workers for data loading')
     parser.add_argument('--num_epochs', type=int, default=10, help='Number of epochs for training')
     parser.add_argument('--learning_rate', type=float, default=0.01, help='Learning rate')
     parser.add_argument('--num_heads', type=int, default=4, help='Number of heads for multi-head attention')
@@ -33,8 +34,8 @@ def main():
         # Training mode
         with open(args.train_data_path, "r", encoding="utf-8") as f:
             raw_text = f.read()
-        dataset = GPTDataset(raw_text, tokenizer=tiktoken.get_encoding("gpt2"), max_length=args.max_length, stride=args.stride)
-        dataloader = create_dataloader(raw_text, max_length=args.max_length, stride=args.stride, batch_size=args.batch_size, tokenizer=tiktoken.get_encoding("gpt2"))
+        # dataset = GPTDataset(raw_text, tokenizer=tiktoken.get_encoding("gpt2"), max_length=args.max_length, stride=args.stride)
+        dataloader = create_dataloader(raw_text, max_length=args.max_length, stride=args.stride, batch_size=args.batch_size, tokenizer=tiktoken.get_encoding("gpt2"), num_workers=args.num_workers)
         model = GPTModel(vocab_size=50257, output_dim=256, block_size=args.max_length, num_heads=args.num_heads, num_layers=args.num_layers)
         model.train_model(dataloader, num_epochs=args.num_epochs, learning_rate=args.learning_rate, save_path=args.save_path)
 

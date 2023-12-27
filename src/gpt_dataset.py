@@ -53,7 +53,7 @@ class GPTDataset(Dataset):
         return self.input_ids[idx], self.target_ids[idx]
 
 
-def create_dataloader(text, tokenizer, batch_size=4, max_length=256, stride=128):
+def create_dataloader(text, tokenizer, batch_size, max_length, stride, num_workers):
     """
     Create a DataLoader for the GPT Dataset.
 
@@ -62,7 +62,8 @@ def create_dataloader(text, tokenizer, batch_size=4, max_length=256, stride=128)
     :param batch_size: int, size of each batch of data.
     :param max_length: int, maximum sequence length for each data sample.
     :param stride: int, stride for creating overlapping sequences.
+    :param num_workers: int, number of subprocesses to use for data loading.
     :return: DataLoader, the DataLoader instance for the dataset.
     """
     dataset = GPTDataset(text, tokenizer, max_length, stride)
-    return DataLoader(dataset, batch_size=batch_size)
+    return DataLoader(dataset=dataset, batch_size=batch_size, num_workers=num_workers)
