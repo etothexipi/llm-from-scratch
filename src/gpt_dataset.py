@@ -36,6 +36,13 @@ class GPTDataset(Dataset):
             target_chunk = token_ids[i + 1:i + max_length + 1]
             self.input_ids.append(torch.tensor(input_chunk, dtype=torch.long))
             self.target_ids.append(torch.tensor(target_chunk, dtype=torch.long))
+            # if i < 2:
+            #     print(text[:100])
+            #     # print(token_ids[:17])
+            #     print(input_chunk)
+            #     print(target_chunk)
+            #     print(self.input_ids)
+            #     print(self.target_ids)
 
     def __len__(self):
         """

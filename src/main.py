@@ -15,6 +15,7 @@ def parse_arguments():
     parser.add_argument('--batch_size', type=int, default=4, help='Batch size for training')
     parser.add_argument('--max_length', type=int, default=256, help='Maximum sequence length')
     parser.add_argument('--stride', type=int, default=128, help='Stride for data loading')
+    parser.add_argument('--output_dim', type=int, default=1, help='Embedding dimension for output')
     parser.add_argument('--num_workers', type=int, default=1, help='Number of workers for data loading')
     parser.add_argument('--num_epochs', type=int, default=10, help='Number of epochs for training')
     parser.add_argument('--learning_rate', type=float, default=0.01, help='Learning rate')
@@ -37,13 +38,13 @@ def main():
             raw_text = f.read()
         # dataset = GPTDataset(raw_text, tokenizer=tiktoken.get_encoding("gpt2"), max_length=args.max_length, stride=args.stride)
         dataloader = create_dataloader(raw_text, max_length=args.max_length, stride=args.stride, batch_size=args.batch_size, tokenizer=tiktoken.get_encoding("gpt2"), num_workers=args.num_workers)
-        model = GPTModel(vocab_size=50257, output_dim=256, block_size=args.max_length, num_heads=args.num_heads, num_layers=args.num_layers)
+        model = GPTModel(vocab_size=50257, output_dim=args.output_dim, block_size=args.max_length, num_heads=args.num_heads, num_layers=args.num_layers)
         model.train_model(dataloader, num_epochs=args.num_epochs, learning_rate=args.learning_rate, grad_accumulation_steps=args.grad_accumulation_steps, save_path_prefix=args.save_path_prefix)
 
     elif args.mode == 'infer':
         # Inference mode
         tokenizer = tiktoken.get_encoding("gpt2")
-        model = GPTModel(vocab_size=50257, output_dim=256, block_size=args.max_length, num_heads=args.num_heads, num_layers=args.num_layers)
+        model = GPTModel(vocab_size=50257, output_dim=args.output_dim, block_size=args.max_length, num_heads=args.num_heads, num_layers=args.num_layers)
         model.load_state_dict(torch.load(args.load_path))
         model.eval()
 
@@ -56,7 +57,7 @@ def main():
         with torch.no_grad():
             output = model(input_tensor)
             predicted_token_ids = torch.argmax(output, dim=-1)
-            predicted_text = tokenizer.decode(predicted_token_ids.squeeze().tolist())
+            predicted_text = tokenizer.decode(predicted_token_ids.tolist())
             print(f"Generated Text: {predicted_text}")
         
 if __name__ == "__main__":

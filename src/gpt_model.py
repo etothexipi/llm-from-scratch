@@ -3,6 +3,7 @@ import math
 import torch
 from torch.cuda.amp import GradScaler, autocast
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 # from torch.profiler import profile, ProfilerActivity
 
@@ -48,8 +49,11 @@ class PositionalEncoding(nn.Module):
         """
         # Need to adjust the tensor shape to match other modules (batch_size, seq_len, embed_dim)
         x = x.transpose(0, 1)
+        # print(f"x: {x[1]}")
         x = x + self.pe[:x.size(0), :]
+        # print(f"x_pos: {x[1]}")
         return self.dropout(x.transpose(0, 1))
+        # return self.dropout(x)
     
 
 class GPTModel(nn.Transformer):
@@ -69,7 +73,7 @@ class GPTModel(nn.Transformer):
         :param num_heads: int, the number of heads in the multiheadattention models.
         :param num_layers: int, the number of sub-encoder-layers in the transformer.
         """
-        super().__init__(d_model=output_dim, nhead=num_heads, num_encoder_layers=num_layers)
+        super().__init__(d_model=output_dim, nhead=num_heads, num_encoder_layers=num_layers, num_decoder_layers=num_layers, batch_first=True)
         self.output_dim = output_dim
         # self.num_heads = num_heads
         # self.num_layers = num_layers
@@ -77,8 +81,8 @@ class GPTModel(nn.Transformer):
         # self.pos_embedding_layer = nn.Embedding(block_size, output_dim)
         # self.transformer_decoder_layer = nn.TransformerDecoderLayer(d_model=output_dim, nhead=num_heads)
         # self.transformer_decoder = nn.TransformerDecoder(self.transformer_decoder_layer, num_layers=num_layers)
-        self.pos_encoder = PositionalEncoding(d_model=output_dim, dropout=0.0, max_len=block_size)
-        self.linear_decoder = nn.Linear(output_dim, vocab_size)
+        self.pos_encoder = PositionalEncoding(d_model=output_dim, dropout=0.1, max_len=block_size)
+        self.linear_layer = nn.Linear(output_dim, vocab_size)
 
     def forward(self, inputs):
         """
@@ -87,15 +91,25 @@ class GPTModel(nn.Transformer):
         :param inputs: torch.Tensor, input tensor.
         :return: torch.Tensor, logits output by the model.
         """
-        # _batch_size, seq_length, _embedding_dimensions = token_embeddings.shape
+        _batch_size, seq_length = inputs.shape
         # pos_embeddings = self.pos_embedding_layer(torch.arange(seq_length, device=inputs.device))
         # input_embeddings = token_embeddings + pos_embeddings
-        token_embeddings = self.token_embedding_layer(inputs) * math.sqrt(self.output_dim)
+        # print(f"token_embedding_inputs: {self.token_embedding_layer(inputs)}")
+        # print(f"sqrt: {math.sqrt(self.output_dim)}")
+        token_embeddings = self.token_embedding_layer(inputs) # * math.sqrt(self.output_dim)
+        # print(f"token_embeddings: {token_embeddings}")
         src = self.pos_encoder(token_embeddings)
-        mask = torch.log(torch.tril(torch.ones(len(src),len(src)))).to(inputs.device)
-        output = self.encoder(src, mask=mask)
-        logits = self.linear_decoder(output)
-        # print(logits)
+        # print(f"src: {src}")
+        mask = torch.log(torch.tril(torch.ones(seq_length,seq_length))).to(inputs.device)
+        # print(f"mask: {mask}")
+        encoder_output = self.encoder(src, mask=mask)
+        # print(f"encoder_output: {encoder_output}")
+        decoder_output = self.decoder(src, encoder_output)
+        # print(f"decoder_output: {decoder_output}")
+        last_token_output = decoder_output[:, -1, :]
+        # print(f"last_token_output: {last_token_output}")
+        logits = self.linear_layer(last_token_output)
+        # print(f"logits: {logits}")
         return logits
 
     def train_model(self, train_dataloader, num_epochs, learning_rate, save_path_prefix, grad_accumulation_steps):
@@ -125,11 +139,11 @@ class GPTModel(nn.Transformer):
             for step, (inputs, targets) in enumerate(train_dataloader):
                 # pin arrays which allows us to move them to GPU asynchronously (non_blocking=True)
                 inputs, targets = inputs.pin_memory().to(device, non_blocking=True), targets.pin_memory().to(device, non_blocking=True)
-
+                next_token_targets = targets[:, -1]
                 # Mixed precision training
                 with autocast():
                     logits = self(inputs)
-                    loss = criterion(logits.view(-1, logits.size(-1)), targets.view(-1))
+                    loss = criterion(logits.view(-1, logits.size(-1)), next_token_targets.view(-1))
                     scaler.scale(loss).backward()
                 
                 # Gradient accumulation
@@ -141,8 +155,12 @@ class GPTModel(nn.Transformer):
                 
                 total_loss += loss.item()
 
-                if cnt % 100 == 0:
+                if cnt % 500 == 0:
                     print(f"Batches remaining: {len(train_dataloader) - cnt}")
+                    print(f"logits_view: {logits.view(-1, logits.size(-1))}")
+                    print(f"targets_view: {next_token_targets.view(-1)}")
+                    print(f"inputs: {inputs}")
+                    print(f"gradients: {self.linear_layer.weight.grad}")
                 cnt += 1
 
             print(f"Epoch {epoch+1}/{num_epochs}, Loss: {total_loss:.4f}")
