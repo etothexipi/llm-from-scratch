@@ -1,3 +1,4 @@
+from datetime import datetime
 import math
 
 import torch
@@ -102,9 +103,9 @@ class GPTModel(nn.Transformer):
         # print(f"src: {src}")
         mask = torch.log(torch.tril(torch.ones(seq_length,seq_length))).to(inputs.device)
         # print(f"mask: {mask}")
-        encoder_output = self.encoder(src, mask=mask)
+        encoder_output = self.encoder(src)
         # print(f"encoder_output: {encoder_output}")
-        decoder_output = self.decoder(src, encoder_output)
+        decoder_output = self.decoder(src, encoder_output, tgt_mask=mask)
         # print(f"decoder_output: {decoder_output}")
         last_token_output = decoder_output[:, -1, :]
         # print(f"last_token_output: {last_token_output}")
@@ -136,6 +137,7 @@ class GPTModel(nn.Transformer):
             optimizer.zero_grad()
             # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=False, with_stack=False) as prof:
             cnt = 0
+            step_start = datetime.now()
             for step, (inputs, targets) in enumerate(train_dataloader):
                 # pin arrays which allows us to move them to GPU asynchronously (non_blocking=True)
                 inputs, targets = inputs.pin_memory().to(device, non_blocking=True), targets.pin_memory().to(device, non_blocking=True)
@@ -155,18 +157,19 @@ class GPTModel(nn.Transformer):
                 
                 total_loss += loss.item()
 
-                if cnt % 500 == 0:
-                    print(f"Batches remaining: {len(train_dataloader) - cnt}")
-                    print(f"logits_view: {logits.view(-1, logits.size(-1))}")
-                    print(f"targets_view: {next_token_targets.view(-1)}")
-                    print(f"inputs: {inputs}")
-                    print(f"gradients: {self.linear_layer.weight.grad}")
-                cnt += 1
+                # Estimate time remaining for epoch
+                if step % 1000 == 0 and step != 0:
+                    step_end = datetime.now()
+                    time_elapsed = step_end - step_start
+                    time_remaining = time_elapsed * (len(train_dataloader) - step) / 100
+                    print(f"Estimated time remaining for epoch: {time_remaining}")
+                    step_start = datetime.now()
 
             print(f"Epoch {epoch+1}/{num_epochs}, Loss: {total_loss:.4f}")
             # print(prof.key_averages(group_by_stack_n=10).table(sort_by="self_cuda_time_total", row_limit=10))
             # print(prof.key_averages(group_by_stack_n=10).table(sort_by="self_cpu_time_total", row_limit=10))
 
-            save_path = f"{save_path_prefix}_{epoch+1}.pth"
-            torch.save(self.state_dict(), save_path)
-            print(f"Model checkpoint saved to {save_path}")
+            if epoch % 10 == 0:
+                save_path = f"{save_path_prefix}_{epoch+1}.pth"
+                torch.save(self.state_dict(), save_path)
+                print(f"Model checkpoint saved to {save_path}")
