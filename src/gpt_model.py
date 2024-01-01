@@ -51,13 +51,13 @@ class PositionalEncoding(nn.Module):
         # Need to adjust the tensor shape to match other modules (batch_size, seq_len, embed_dim)
         x = x.transpose(0, 1)
         # print(f"x: {x[1]}")
-        x = x + self.pe[:x.size(0), :]
+        x = x + self.pe[:x.size(0), :].requires_grad_(False)
         # print(f"x_pos: {x[1]}")
         return self.dropout(x.transpose(0, 1))
         # return self.dropout(x)
     
 
-class GPTModel(nn.Transformer):
+class GPTModel(nn.Module):
     """
     A PyTorch module for a GPT-like transformer model.
 
@@ -74,14 +74,14 @@ class GPTModel(nn.Transformer):
         :param num_heads: int, the number of heads in the multiheadattention models.
         :param num_layers: int, the number of sub-encoder-layers in the transformer.
         """
-        super().__init__(d_model=output_dim, nhead=num_heads, num_encoder_layers=num_layers, num_decoder_layers=num_layers, batch_first=True)
+        super().__init__()
         self.output_dim = output_dim
         # self.num_heads = num_heads
         # self.num_layers = num_layers
         self.token_embedding_layer = nn.Embedding(vocab_size, output_dim)
         # self.pos_embedding_layer = nn.Embedding(block_size, output_dim)
-        # self.transformer_decoder_layer = nn.TransformerDecoderLayer(d_model=output_dim, nhead=num_heads)
-        # self.transformer_decoder = nn.TransformerDecoder(self.transformer_decoder_layer, num_layers=num_layers)
+        self.transformer_decoder_layer = nn.TransformerDecoderLayer(d_model=output_dim, nhead=num_heads, batch_first=True)
+        self.transformer_decoder = nn.TransformerDecoder(self.transformer_decoder_layer, num_layers=num_layers)
         self.pos_encoder = PositionalEncoding(d_model=output_dim, dropout=0.1, max_len=block_size)
         self.linear_layer = nn.Linear(output_dim, vocab_size)
 
@@ -103,11 +103,13 @@ class GPTModel(nn.Transformer):
         # print(f"src: {src}")
         mask = torch.log(torch.tril(torch.ones(seq_length,seq_length))).to(inputs.device)
         # print(f"mask: {mask}")
-        encoder_output = self.encoder(src)
+        # encoder_output = self.encoder(src, mask=mask)
         # print(f"encoder_output: {encoder_output}")
-        decoder_output = self.decoder(src, encoder_output, tgt_mask=mask)
+        decoder_output = self.transformer_decoder(tgt=src, memory=src, tgt_mask=mask, memory_mask=mask)
+        # decoder_output = self.decoder(src)
         # print(f"decoder_output: {decoder_output}")
         last_token_output = decoder_output[:, -1, :]
+        # last_token_output = encoder_output[:, -1, :]
         # print(f"last_token_output: {last_token_output}")
         logits = self.linear_layer(last_token_output)
         # print(f"logits: {logits}")
@@ -156,16 +158,17 @@ class GPTModel(nn.Transformer):
                     optimizer.zero_grad(set_to_none=True)
                 
                 total_loss += loss.item()
+                avg_loss = total_loss / (step + 1)
 
                 # Estimate time remaining for epoch
-                if step % 1000 == 0 and step != 0:
-                    step_end = datetime.now()
-                    time_elapsed = step_end - step_start
-                    time_remaining = time_elapsed * (len(train_dataloader) - step) / 100
-                    print(f"Estimated time remaining for epoch: {time_remaining}")
-                    step_start = datetime.now()
+                # if step % 1000 == 0 and step != 0:
+                #     step_end = datetime.now()
+                #     time_elapsed = step_end - step_start
+                #     time_remaining = time_elapsed * (len(train_dataloader) - step) / 100
+                #     print(f"Estimated time remaining for epoch: {time_remaining}")
+                #     step_start = datetime.now()
 
-            print(f"Epoch {epoch+1}/{num_epochs}, Loss: {total_loss:.4f}")
+            print(f"Epoch {epoch+1}/{num_epochs}, Avg Loss: {avg_loss:.4f}")
             # print(prof.key_averages(group_by_stack_n=10).table(sort_by="self_cuda_time_total", row_limit=10))
             # print(prof.key_averages(group_by_stack_n=10).table(sort_by="self_cpu_time_total", row_limit=10))
 

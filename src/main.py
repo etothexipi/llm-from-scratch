@@ -38,13 +38,15 @@ def main():
             raw_text = f.read()
         # dataset = GPTDataset(raw_text, tokenizer=tiktoken.get_encoding("gpt2"), max_length=args.max_length, stride=args.stride)
         dataloader = create_dataloader(raw_text, max_length=args.max_length, stride=args.stride, batch_size=args.batch_size, tokenizer=tiktoken.get_encoding("gpt2"), num_workers=args.num_workers)
-        model = GPTModel(vocab_size=50257, output_dim=args.output_dim, block_size=args.max_length, num_heads=args.num_heads, num_layers=args.num_layers)
+        # Faster GPU matmul with vocab_size multiple of 64 (is normally 50257 for tiktoken gpt-2 tokenizer)
+        model = GPTModel(vocab_size=50304, output_dim=args.output_dim, block_size=args.max_length, num_heads=args.num_heads, num_layers=args.num_layers)
         model.train_model(dataloader, num_epochs=args.num_epochs, learning_rate=args.learning_rate, grad_accumulation_steps=args.grad_accumulation_steps, save_path_prefix=args.save_path_prefix)
 
     elif args.mode == 'infer':
         # Inference mode
         tokenizer = tiktoken.get_encoding("gpt2")
-        model = GPTModel(vocab_size=50257, output_dim=args.output_dim, block_size=args.max_length, num_heads=args.num_heads, num_layers=args.num_layers)
+        # Faster GPU matmul with vocab_size multiple of 64 (is normally 50257 for tiktoken gpt-2 tokenizer)
+        model = GPTModel(vocab_size=50304, output_dim=args.output_dim, block_size=args.max_length, num_heads=args.num_heads, num_layers=args.num_layers)
         model.load_state_dict(torch.load(args.load_path))
         model.eval()
 
