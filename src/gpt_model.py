@@ -1,3 +1,4 @@
+import copy
 from datetime import datetime
 import math
 
@@ -7,6 +8,107 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 # from torch.profiler import profile, ProfilerActivity
+
+
+# Class modified from PyTorch 2.1 TransformerDecoderLayer class
+class CustomTransformerDecoderLayer(nn.Module):
+    """Modified from original PyTorch class. The difference is we are removing the two
+    attention steps and the `memory` tensor input since this is a generative model
+    and we do not have any `memory` or encoder output to pass in, only the input sequence.
+
+    Args:
+        d_model: the number of expected features in the input (required).
+        nhead: the number of heads in the multiheadattention models (required).
+        dim_feedforward: the dimension of the feedforward network model (default=2048).
+        dropout: the dropout value (default=0.1).
+        activation: the activation function of the intermediate layer, can be a string
+            ("relu" or "gelu") or a unary callable. Default: relu
+        layer_norm_eps: the eps value in layer normalization components (default=1e-5).
+        batch_first: If ``True``, then the input and output tensors are provided
+            as (batch, seq, feature). Default: ``False`` (seq, batch, feature).
+        norm_first: if ``True``, layer norm is done prior to self attention, multihead
+            attention and feedforward operations, respectively. Otherwise it's done after.
+            Default: ``False`` (after).
+        bias: If set to ``False``, ``Linear`` and ``LayerNorm`` layers will not learn an additive
+            bias. Default: ``True``.
+    """
+    __constants__ = ['norm_first']
+
+    def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1, activation=F.relu,
+                 layer_norm_eps=1e-5, batch_first=False, norm_first=True, bias=True, device=None, dtype=None) -> None:
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        super().__init__()
+        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=batch_first,
+                                            bias=bias, **factory_kwargs)
+        # Implementation of Feedforward model
+        self.linear1 = nn.Linear(d_model, dim_feedforward, bias=bias, **factory_kwargs)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, d_model, bias=bias, **factory_kwargs)
+
+        self.norm_first = norm_first
+        self.norm1 = nn.LayerNorm(d_model, eps=layer_norm_eps, bias=bias, **factory_kwargs)
+        self.norm2 = nn.LayerNorm(d_model, eps=layer_norm_eps, bias=bias, **factory_kwargs)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+
+        # Legacy string support for activation function.
+        if isinstance(activation, str):
+            self.activation = _get_activation_fn(activation)
+        else:
+            self.activation = activation
+
+
+    def __setstate__(self, state):
+        if 'activation' not in state:
+            state['activation'] = F.relu
+        super().__setstate__(state)
+
+
+    def forward(self, tgt, tgt_mask=None, tgt_key_padding_mask=None, tgt_is_causal=False):
+        r"""Pass the inputs (and mask) through the decoder layer.
+
+        Args:
+            tgt: the sequence to the decoder layer (required).
+            tgt_mask: the mask for the tgt sequence (optional).
+            tgt_key_padding_mask: the mask for the tgt keys per batch (optional).
+            tgt_is_causal: If specified, applies a causal mask as ``tgt mask``.
+                Default: ``False``.
+                Warning:
+                ``tgt_is_causal`` provides a hint that ``tgt_mask`` is
+                the causal mask. Providing incorrect hints can result in
+                incorrect execution, including forward and backward
+                compatibility.
+
+        Shape:
+            see the docs in Transformer class.
+        """
+        # see Fig. 1 of https://arxiv.org/pdf/2002.04745v1.pdf
+
+        x = tgt
+        if self.norm_first:
+            x = x + self._sa_block(self.norm1(x), tgt_mask, tgt_key_padding_mask, tgt_is_causal)
+            x = x + self._ff_block(self.norm2(x))
+        else:
+            x = self.norm1(x + self._sa_block(x, tgt_mask, tgt_key_padding_mask, tgt_is_causal))
+            x = self.norm2(x + self._ff_block(x))
+
+        return x
+
+
+    # self-attention block
+    def _sa_block(self, x, attn_mask, key_padding_mask, is_causal=False):
+        x = self.self_attn(x, x, x,
+                           attn_mask=attn_mask,
+                           key_padding_mask=key_padding_mask,
+                           is_causal=is_causal,
+                           need_weights=False)[0]
+        return self.dropout1(x)
+
+
+    # feed forward block
+    def _ff_block(self, x):
+        x = self.linear2(self.dropout(self.activation(self.linear1(x))))
+        return self.dropout2(x)
 
 
 # Class taken from: https://github.com/pytorch/examples/blob/30b310a977a82dbfc3d8e4a820f3b14d876d3bd2/word_language_model/model.py#L65C1-L105C31
@@ -80,9 +182,9 @@ class GPTModel(nn.Module):
         # self.num_layers = num_layers
         self.token_embedding_layer = nn.Embedding(vocab_size, output_dim)
         # self.pos_embedding_layer = nn.Embedding(block_size, output_dim)
-        self.transformer_decoder_layer = nn.TransformerDecoderLayer(d_model=output_dim, nhead=num_heads, batch_first=True)
-        self.transformer_decoder = nn.TransformerDecoder(self.transformer_decoder_layer, num_layers=num_layers)
-        self.pos_encoder = PositionalEncoding(d_model=output_dim, dropout=0.1, max_len=block_size)
+        self.transformer_decoder_layer = CustomTransformerDecoderLayer(d_model=output_dim, nhead=num_heads, dim_feedforward=1024, dropout=0.0, batch_first=True)
+        self.transformer_decoder = nn.ModuleList([copy.deepcopy(self.transformer_decoder_layer) for i in range(num_layers)])
+        self.pos_encoder = PositionalEncoding(d_model=output_dim, dropout=0.0, max_len=block_size)
         self.linear_layer = nn.Linear(output_dim, vocab_size)
 
     def forward(self, inputs):
@@ -93,24 +195,13 @@ class GPTModel(nn.Module):
         :return: torch.Tensor, logits output by the model.
         """
         _batch_size, seq_length = inputs.shape
-        # pos_embeddings = self.pos_embedding_layer(torch.arange(seq_length, device=inputs.device))
-        # input_embeddings = token_embeddings + pos_embeddings
-        # print(f"token_embedding_inputs: {self.token_embedding_layer(inputs)}")
-        # print(f"sqrt: {math.sqrt(self.output_dim)}")
-        token_embeddings = self.token_embedding_layer(inputs) # * math.sqrt(self.output_dim)
-        # print(f"token_embeddings: {token_embeddings}")
-        src = self.pos_encoder(token_embeddings)
-        # print(f"src: {src}")
-        mask = torch.log(torch.tril(torch.ones(seq_length,seq_length))).to(inputs.device)
-        # print(f"mask: {mask}")
-        # encoder_output = self.encoder(src, mask=mask)
-        # print(f"encoder_output: {encoder_output}")
-        decoder_output = self.transformer_decoder(tgt=src, memory=src, tgt_mask=mask, memory_mask=mask)
-        # decoder_output = self.decoder(src)
-        # print(f"decoder_output: {decoder_output}")
+        token_embeddings = self.token_embedding_layer(inputs)
+        pos_encoder_embeddings = self.pos_encoder(token_embeddings)
+        # Generate a square causal mask for the sequence. The masked positions are filled with float('-inf').
+        # Unmasked positions are filled with float(0.0).
+        mask = torch.triu(torch.full((seq_length, seq_length), float('-inf')), diagonal=1)
+        decoder_output = self.transformer_decoder(tgt=pos_encoder_embeddings, tgt_mask=mask, tgt_is_causal=True)
         last_token_output = decoder_output[:, -1, :]
-        # last_token_output = encoder_output[:, -1, :]
-        # print(f"last_token_output: {last_token_output}")
         logits = self.linear_layer(last_token_output)
         # print(f"logits: {logits}")
         return logits
