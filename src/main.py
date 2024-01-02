@@ -53,9 +53,11 @@ def main():
         # Generate text using the trained model
         text = args.text_to_infer
         input_ids = tokenizer.encode(text)
+        if len(input_ids) > args.max_length:
+            input_ids_trunc_pad = input_ids[:args.max_length]
         # 50256 is the empty padding token with tiktoken gpt-2 encoding
-        input_ids_trunc = input_ids + [50256] * (args.max_length - len(input_ids))
-        input_tensor = torch.tensor(input_ids_trunc).unsqueeze(0)
+        input_ids_trunc_pad = input_ids + [50256] * (args.max_length - len(input_ids))
+        input_tensor = torch.tensor(input_ids_trunc_pad).unsqueeze(0)
         with torch.no_grad():
             output = model(input_tensor)
             predicted_token_ids = torch.topk(output, 5, dim=-1)
@@ -63,8 +65,6 @@ def main():
             print(predicted_token_ids.indices.tolist())
             for token in predicted_token_ids.indices.tolist():
                 print(tokenizer.decode(token))
-            # predicted_text = tokenizer.decode(predicted_token_ids.tolist())
-            # print(f"Generated Text: {'/'.join(predicted_text)}")
         
 if __name__ == "__main__":
     main()
