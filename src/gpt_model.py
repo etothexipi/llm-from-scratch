@@ -57,15 +57,13 @@ class CustomTransformerDecoderLayer(nn.Module):
         else:
             self.activation = activation
 
-
     def __setstate__(self, state):
         if 'activation' not in state:
             state['activation'] = F.relu
         super().__setstate__(state)
 
-
     def forward(self, tgt, tgt_mask=None, tgt_key_padding_mask=None, tgt_is_causal=False):
-        r"""Pass the inputs (and mask) through the decoder layer.
+        """Pass the inputs (and mask) through the decoder layer.
 
         Args:
             tgt: the sequence to the decoder layer (required).
@@ -94,7 +92,6 @@ class CustomTransformerDecoderLayer(nn.Module):
 
         return x
 
-
     # self-attention block
     def _sa_block(self, x, attn_mask, key_padding_mask, is_causal=False):
         x = self.self_attn(x, x, x,
@@ -103,7 +100,6 @@ class CustomTransformerDecoderLayer(nn.Module):
                            is_causal=is_causal,
                            need_weights=False)[0]
         return self.dropout1(x)
-
 
     # feed forward block
     def _ff_block(self, x):
@@ -178,14 +174,12 @@ class GPTModel(nn.Module):
         """
         super().__init__()
         self.output_dim = output_dim
-        # self.num_heads = num_heads
-        # self.num_layers = num_layers
         self.token_embedding_layer = nn.Embedding(vocab_size, output_dim)
-        # self.pos_embedding_layer = nn.Embedding(block_size, output_dim)
-        self.transformer_decoder_layer = CustomTransformerDecoderLayer(d_model=output_dim, nhead=num_heads, dim_feedforward=1024, dropout=0.0, batch_first=True)
-        self.transformer_decoder = nn.ModuleList([copy.deepcopy(self.transformer_decoder_layer) for i in range(num_layers)])
+        # dim_feedforward calculation from https://github.com/karpathy/nanoGPT/blob/eba36e84649f3c6d840a93092cb779a260544d08/model.py#L82
+        transformer_decoder_layer = CustomTransformerDecoderLayer(d_model=output_dim, nhead=num_heads, dim_feedforward=output_dim * 4, dropout=0.0, batch_first=True)
+        self.transformer_decoder = nn.ModuleList([copy.deepcopy(transformer_decoder_layer) for _ in range(num_layers)])
         self.pos_encoder = PositionalEncoding(d_model=output_dim, dropout=0.0, max_len=block_size)
-        self.linear_layer = nn.Linear(output_dim, vocab_size)
+        self.linear_layer = nn.Linear(output_dim, vocab_size, bias=False)
 
     def forward(self, inputs):
         """
@@ -200,7 +194,10 @@ class GPTModel(nn.Module):
         # Generate a square causal mask for the sequence. The masked positions are filled with float('-inf').
         # Unmasked positions are filled with float(0.0).
         mask = torch.triu(torch.full((seq_length, seq_length), float('-inf')), diagonal=1)
-        decoder_output = self.transformer_decoder(tgt=pos_encoder_embeddings, tgt_mask=mask, tgt_is_causal=True)
+        decoder_output = pos_encoder_embeddings
+        for layer in self.transformer_decoder:
+            decoder_output = layer(tgt=decoder_output, tgt_mask=mask, tgt_is_causal=True)
+
         last_token_output = decoder_output[:, -1, :]
         logits = self.linear_layer(last_token_output)
         # print(f"logits: {logits}")
@@ -251,19 +248,23 @@ class GPTModel(nn.Module):
                 total_loss += loss.item()
                 avg_loss = total_loss / (step + 1)
 
-                # Estimate time remaining for epoch
-                # if step % 1000 == 0 and step != 0:
-                #     step_end = datetime.now()
-                #     time_elapsed = step_end - step_start
-                #     time_remaining = time_elapsed * (len(train_dataloader) - step) / 100
-                #     print(f"Estimated time remaining for epoch: {time_remaining}")
-                #     step_start = datetime.now()
+                # Show time estimates for first epoch and first few steps only
+                if epoch == 0 and step in (1, 10, 100, 1000, 10000):
+                    step_end = datetime.now()
+                    time_elapsed = step_end - step_start
+                    time_remaining = time_elapsed * (len(train_dataloader) - step) / step
+                    print(f"Estimated time remaining for epoch: {time_remaining}")
+                    step_start = datetime.now()
+                
+                # Print number of params at start of job
+                if epoch ==0 and step == 0:
+                    print(f"Number of parameters in model: {sum(p.numel() for p in self.parameters())}")
 
-            print(f"Epoch {epoch+1}/{num_epochs}, Avg Loss: {avg_loss:.4f}")
+            print(f"Epoch {epoch+1}/{num_epochs}, Avg Loss: {avg_loss:.4f}, Time Completed: {datetime.now()}")
             # print(prof.key_averages(group_by_stack_n=10).table(sort_by="self_cuda_time_total", row_limit=10))
             # print(prof.key_averages(group_by_stack_n=10).table(sort_by="self_cpu_time_total", row_limit=10))
 
-            if epoch % 10 == 0:
+            if (epoch+1) % 10 == 0:
                 save_path = f"{save_path_prefix}_{epoch+1}.pth"
                 torch.save(self.state_dict(), save_path)
                 print(f"Model checkpoint saved to {save_path}")

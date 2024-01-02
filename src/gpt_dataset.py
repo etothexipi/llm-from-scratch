@@ -32,17 +32,29 @@ class GPTDataset(Dataset):
         """
         token_ids = self.tokenizer.encode(text)
         for i in range(0, len(token_ids) - max_length, stride):
-            input_chunk = token_ids[i:i + max_length]
-            target_chunk = token_ids[i + 1:i + max_length + 1]
-            self.input_ids.append(torch.tensor(input_chunk, dtype=torch.long))
-            self.target_ids.append(torch.tensor(target_chunk, dtype=torch.long))
-            # if i < 2:
-            #     print(text[:100])
-            #     # print(token_ids[:17])
-            #     print(input_chunk)
-            #     print(target_chunk)
-            #     print(self.input_ids)
-            #     print(self.target_ids)
+            for j in range(max_length):
+                if j > 0:
+                    input_pad = [50256] * j
+                    input_chunk = token_ids[i:i + max_length - j] + input_pad
+                else:
+                    input_chunk = token_ids[i:i + max_length - j]
+                    
+                if j > 1:
+                    target_pad = [50256] * (j - 1)
+                    target_chunk = token_ids[i + 1:i + max_length + 1 - j] + target_pad
+                else:
+                    target_chunk = token_ids[i + 1:i + max_length + 1 - j]
+                
+                self.input_ids.append(torch.tensor(input_chunk, dtype=torch.long))
+                self.target_ids.append(torch.tensor(target_chunk, dtype=torch.long))
+                if i < 2:
+                    print(f"jth iteration: {j}")
+                    print(text[:100])
+                    # print(token_ids[:17])
+                    print(input_chunk)
+                    print(target_chunk)
+                    print(self.input_ids)
+                    print(self.target_ids)
 
     def __len__(self):
         """
